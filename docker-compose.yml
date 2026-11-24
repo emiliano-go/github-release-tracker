@@ -1,0 +1,54 @@
+services:
+  n8n:
+    image: n8nio/n8n:2.48.7
+    container_name: n8n-github-tracker
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "${N8N_BIND_IP:-127.0.0.1}:${N8N_PORT:-5678}:5678"
+    environment:
+      # --- n8n core -------------------------------------------------------
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in .env}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL:-http://localhost:5678}
+      N8N_SECURE_COOKIE: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      GENERIC_TIMEZONE: America/Montevideo
+      TZ: America/Montevideo
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_EXECUTIONS_DATA_PRUNE: "true"
+      N8N_EXECUTIONS_DATA_MAX_AGE: "48"
+      N8N_LOG_LEVEL: info
+      # --- tracker configuration -----------------------------------------
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-PASTE_GITHUB_TOKEN}
+      TRACKED_REPOS: ${TRACKED_REPOS:-emiliano-go/trustsight,emiliano-go/rypipe,dbwarden-org/dbwarden}
+      GITHUB_POLL_MINUTES: ${GITHUB_POLL_MINUTES:-15}
+      DIGEST_HOURS: ${DIGEST_HOURS:-24}
+      X_ENABLED: ${X_ENABLED:-false}
+      X_CONSUMER_KEY: ${X_CONSUMER_KEY:-}
+      X_CONSUMER_SECRET: ${X_CONSUMER_SECRET:-}
+      X_ACCESS_TOKEN: ${X_ACCESS_TOKEN:-}
+      X_ACCESS_TOKEN_SECRET: ${X_ACCESS_TOKEN_SECRET:-}
+      DSH_WEBHOOK_TOKEN: ${DSH_WEBHOOK_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gemini-3.5-flash}
+    volumes:
+      - ./data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

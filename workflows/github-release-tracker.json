@@ -1,0 +1,1150 @@
+{
+  "id": "ghReleaseTrack01",
+  "name": "GitHub Releases & Features → X (Telegram approval)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "totem-approvals",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n01",
+      "name": "DSH Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        760
+      ],
+      "webhookId": "a1b2c3d4-totem-approvals"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst req = $json || {};\nconst headers = req.headers || {};\nconst body = req.body || {};\nconst query = req.query || {};\nconst token = String($env.DSH_WEBHOOK_TOKEN || '');\nconst given = String(headers['x-totem-token'] || headers['X-Totem-Token'] || body.token || query.token || '');\nconst reply = (statusCode, payload) => [{ json: { statusCode, body: payload } }];\n\nif (!token || given !== token) return reply(401, { error: 'unauthorized' });\n\nst.pending = st.pending || {};\nconst op = String(body.op || query.op || 'list');\n\nif (op === 'list') {\n  const pending = Object.values(st.pending)\n    .filter((p) => p && p.status === 'pending')\n    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))\n    .map((p) => ({\n      key: p.key,\n      kind: p.kind,\n      repo: p.repo,\n      title: p.title,\n      draft: p.draft,\n      tweetText: p.tweetText,\n      url: p.url,\n      createdAt: p.createdAt,\n      attempts: p.attempts || 0,\n      lastError: p.lastError || ''\n    }));\n  return reply(200, { ok: true, count: pending.length, pending });\n}\n\nif (op === 'enqueue') {\n  const note = String(body.note || '').trim();\n  const url = String(body.url || '').trim();\n  if (note.length < 12) return reply(400, { error: 'note is too short' });\n  if (note.length > 2000) return reply(400, { error: 'note is too long' });\n  const okUrl = url === '' || url.startsWith('http://') || url.startsWith('https://');\n  if (!okUrl) return reply(400, { error: 'url must start with http' });\n  return [{ json: {\n    needsDraft: true,\n    statusCode: 201,\n    note,\n    url,\n    systemPrompt: 'You write the X post for a developer shipping open source. The developer gives you a short note about something they made. Rules: one or two sentences, under 220 characters, prose only. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y. No closing line that restates the point. Never add facts, numbers, or claims that are not in the note. Sound like the person who wrote the code. Return only the post text, no quotes, no URL.',\n    userPrompt: 'What shipped:\\n' + note\n  } }];\n}\n\nif (op === 'act') {\n  const key = String(body.key || '');\n  const action = String(body.action || '');\n  if (!['ok', 're', 'no'].includes(action)) return reply(400, { error: 'action must be ok, re or no' });\n  const p = st.pending[key];\n  if (!p) return reply(404, { error: 'unknown key' });\n  if (p.status !== 'pending') return reply(409, { error: 'already ' + p.status });\n  st.dshActions = st.dshActions || {};\n  st.dshActions[key] = action;\n  return reply(202, { ok: true, queued: true, key, action });\n}\n\nreturn reply(400, { error: 'unknown op' });\n"
+      },
+      "id": "n02",
+      "name": "DSH Approval API",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "n03",
+              "leftValue": "={{ $json.needsDraft }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n04",
+      "name": "Needs Draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -100,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
+        "authentication": "none"
+      },
+      "id": "n05",
+      "name": "AI: Draft Manual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        900
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst api = $('DSH Approval API').item.json;\nconst resp = $json || {};\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\ndraft = String(draft || '').trim();\nif (!draft) draft = String(api.note || '').split(/(?<=[.!?])\\s/)[0] || String(api.note || '');\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\n\nfunction hash(s) {\n  let h = 2166136261;\n  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }\n  return (h >>> 0).toString(36);\n}\n\nconst key = 'm' + hash(String(api.note) + '|' + Date.now());\nconst url = String(api.url || '');\nst.pending = st.pending || {};\nst.pending[key] = {\n  key,\n  kind: 'manual',\n  repo: 'manual',\n  title: 'Manual post',\n  url,\n  body: String(api.note || ''),\n  draft,\n  tweetText: url ? draft + '\\n\\n' + url : draft,\n  status: 'pending',\n  attempts: 0,\n  createdAt: new Date().toISOString(),\n  sk: 'manual#' + key,\n  featureNumbers: []\n};\nreturn [{ json: { statusCode: 201, body: { ok: true, key, draft, usedModel: !!resp.choices } } }];\n"
+      },
+      "id": "n06",
+      "name": "Store Manual",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "id": "n07",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -80,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "n08",
+      "name": "Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nif (st.v !== 1) {\n  st.v = 1;\n  st.initialized = false;\n  st.lastPollAt = 0;\n  st.tgOffset = 0;\n  st.seen = {};\n  st.offered = {};\n  st.prQueue = {};\n  st.lastDigestAt = {};\n  st.pending = {};\n}\nconst gh = String($env.GITHUB_TOKEN || '');\nconst configured = gh.length > 20 && !gh.includes('PASTE');\nconst now = Date.now();\nconst minutes = Math.max(5, Number($env.GITHUB_POLL_MINUTES || 15));\nconst due = !st.lastPollAt || (now - st.lastPollAt) >= minutes * 60000;\nif (configured && due) st.lastPollAt = now;\nreturn [{ json: { configured, githubDue: configured && due, tgOffset: st.tgOffset || 0, now } }];\n"
+      },
+      "id": "n09",
+      "name": "Plan Cycle",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst xEnabled = String($env.X_ENABLED || '').toLowerCase() === 'true';\nconst queued = st.dshActions || {};\nconst out = [];\nfor (const key of Object.keys(queued)) {\n  const act = queued[key];\n  const p = st.pending ? st.pending[key] : null;\n  let action = act === 'ok' ? (xEnabled ? 'approve' : 'xdisabled') : act === 're' ? 'redraft' : 'skip';\n  if (!p || p.status !== 'pending') action = 'expired';\n  const item = { action, key, source: 'dsh' };\n  if (p) {\n    item.repo = p.repo;\n    item.kind = p.kind;\n    item.title = p.title;\n    item.url = p.url;\n    item.body = p.body;\n    item.draft = p.draft;\n    item.tweetText = p.tweetText;\n    item.attempts = p.attempts || 0;\n  }\n  out.push(item);\n}\nst.dshActions = {};\nif (!out.length) out.push({ action: 'none' });\nreturn out.map(json => ({ json }));\n"
+      },
+      "id": "n10",
+      "name": "Read Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "n11",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "none",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n12",
+      "name": "Has Actions?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "n13",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "n14",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "redraft",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "n15",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "skip",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "n16",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "expired",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "n17",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "xdisabled",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n18",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// OAuth 1.0a signer, verified against the X/Twitter published test vector.\n// The same functions are embedded in the workflow's \"Sign X Post\" Code node.\n\nfunction percentEncode(value) {\n  return encodeURIComponent(String(value)).replace(/[!'()*]/g, (c) =>\n    \"%\" + c.charCodeAt(0).toString(16).toUpperCase()\n  );\n}\n\nfunction rotl(n, s) {\n  return ((n << s) | (n >>> (32 - s))) >>> 0;\n}\n\n// SHA-1 over a byte array, returning 20 raw bytes.\nfunction sha1Digest(bytes) {\n  const bitLen = bytes.length * 8;\n  const buf = bytes.slice();\n  buf.push(0x80);\n  while (buf.length % 64 !== 56) buf.push(0);\n  const hi = Math.floor(bitLen / 0x100000000);\n  const lo = bitLen >>> 0;\n  buf.push((hi >>> 24) & 255, (hi >>> 16) & 255, (hi >>> 8) & 255, hi & 255);\n  buf.push((lo >>> 24) & 255, (lo >>> 16) & 255, (lo >>> 8) & 255, lo & 255);\n\n  let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;\n  const w = new Array(80);\n\n  for (let offset = 0; offset < buf.length; offset += 64) {\n    for (let i = 0; i < 16; i++) {\n      const j = offset + i * 4;\n      w[i] = ((buf[j] << 24) | (buf[j + 1] << 16) | (buf[j + 2] << 8) | buf[j + 3]) >>> 0;\n    }\n    for (let i = 16; i < 80; i++) w[i] = rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);\n\n    let a = h0, b = h1, c = h2, d = h3, e = h4;\n    for (let i = 0; i < 80; i++) {\n      let f, k;\n      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }\n      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }\n      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }\n      else { f = b ^ c ^ d; k = 0xca62c1d6; }\n      const temp = (rotl(a, 5) + (f >>> 0) + e + k + w[i]) >>> 0;\n      e = d; d = c; c = rotl(b, 30); b = a; a = temp;\n    }\n    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0;\n    h3 = (h3 + d) >>> 0; h4 = (h4 + e) >>> 0;\n  }\n\n  const out = [];\n  for (const h of [h0, h1, h2, h3, h4]) {\n    out.push((h >>> 24) & 255, (h >>> 16) & 255, (h >>> 8) & 255, h & 255);\n  }\n  return out;\n}\n\nfunction hmacSha1Base64(keyString, messageString) {\n  const block = 64;\n  let key = Array.from(Buffer.from(keyString, \"utf8\"));\n  if (key.length > block) key = sha1Digest(key);\n  while (key.length < block) key.push(0);\n\n  const inner = new Array(block);\n  const outer = new Array(block);\n  for (let i = 0; i < block; i++) {\n    inner[i] = key[i] ^ 0x36;\n    outer[i] = key[i] ^ 0x5c;\n  }\n\n  const innerHash = sha1Digest(inner.concat(Array.from(Buffer.from(messageString, \"utf8\"))));\n  const outerHash = sha1Digest(outer.concat(innerHash));\n  return Buffer.from(outerHash).toString(\"base64\");\n}\n\n/**\n * Build the OAuth1 Authorization header.\n * @returns {{authorization: string, signatureBase: string, signature: string}}\n */\nfunction signRequest({\n  method,\n  url,\n  consumerKey,\n  consumerSecret,\n  token,\n  tokenSecret,\n  nonce,\n  timestamp,\n  params = {},\n}) {\n  const oauth = {\n    oauth_consumer_key: consumerKey,\n    oauth_nonce: nonce,\n    oauth_signature_method: \"HMAC-SHA1\",\n    oauth_timestamp: String(timestamp),\n    oauth_token: token,\n    oauth_version: \"1.0\",\n  };\n\n  const all = { ...oauth, ...params };\n  const paramPairs = Object.keys(all)\n    .map((k) => [percentEncode(k), percentEncode(all[k])])\n    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1));\n\n  const paramString = paramPairs.map(([k, v]) => k + \"=\" + v).join(\"&\");\n  const signatureBase = [method.toUpperCase(), percentEncode(url), percentEncode(paramString)].join(\"&\");\n  const signingKey = percentEncode(consumerSecret) + \"&\" + percentEncode(tokenSecret);\n  const signature = hmacSha1Base64(signingKey, signatureBase);\n\n  const header = \"OAuth \" + Object.keys(oauth)\n    .map((k) => percentEncode(k) + '=\"' + percentEncode(oauth[k]) + '\"')\n    .concat('oauth_signature=\"' + percentEncode(signature) + '\"')\n    .join(\", \");\n\n  return { authorization: header, signatureBase, signature };\n}\n\nconst j = $json;\nconst nonce = 'n' + Math.floor(Math.random() * 1e16).toString(36);\nconst timestamp = Math.floor(Date.now() / 1000);\nconst signed = signRequest({\n  method: 'POST',\n  url: 'https://api.x.com/2/tweets',\n  consumerKey: String($env.X_CONSUMER_KEY || ''),\n  consumerSecret: String($env.X_CONSUMER_SECRET || ''),\n  token: String($env.X_ACCESS_TOKEN || ''),\n  tokenSecret: String($env.X_ACCESS_TOKEN_SECRET || ''),\n  nonce,\n  timestamp\n});\nreturn { json: { text: j.tweetText, authorization: signed.authorization } };\n"
+      },
+      "id": "n19",
+      "name": "Sign X Post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.x.com/2/tweets",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $json.authorization }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "authentication": "none"
+      },
+      "id": "n20",
+      "name": "Post to X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $('Read Queue').item.json;\nconst resp = $json || {};\nconst postId = resp && resp.data && resp.data.id ? resp.data.id : (resp && resp.id ? resp.id : null);\nconst p = (st.pending && st.pending[u.key]) || {};\nif (postId) {\n  p.status = 'posted';\n  p.postId = String(postId);\n  p.postedAt = new Date().toISOString();\n  p.lastError = '';\n} else {\n  const err = (resp && (resp.detail || resp.title || (resp.error && resp.error.message) || resp.message)) || 'X rejected the post';\n  p.lastError = String(err).slice(0, 180);\n}\nst.pending[u.key] = p;\nreturn { json: { done: true, key: u.key, posted: !!postId, error: p.lastError || '' } };\n"
+      },
+      "id": "n21",
+      "name": "Prepare Posted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $json;\nconst p = (st.pending && st.pending[u.key]) || {};\nconst previous = String(p.draft || u.draft || '').trim();\nconst kind = p.kind || u.kind || 'release';\nconst subject = kind === 'features' ? 'features that shipped' : 'a GitHub release';\nconst systemPrompt = 'You rewrite an existing X post for a solo developer. Keep every fact true, invent nothing, and give it a clearly different angle and opening than the previous version. Return only the post text, no quotes, no URL. Aim for 170-230 characters.';\nconst userPrompt = 'Project: ' + (p.repo || u.repo || '') + '\\nSubject: ' + subject + '\\nDetails:\\n' + String(p.body || u.body || '(none)').slice(0, 2500) + '\\n\\nPrevious post to improve and re-angle:\\n' + previous;\nreturn { json: { ...u, systemPrompt, userPrompt, key: u.key } };\n"
+      },
+      "id": "n22",
+      "name": "Build Redraft Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
+        "authentication": "none"
+      },
+      "id": "n23",
+      "name": "Draft Again",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $('Build Redraft Request').item.json;\nconst resp = $json || {};\nconst p = (st.pending && st.pending[u.key]) || {};\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\ndraft = String(draft || '').trim();\nif (!draft) draft = p.draft || u.title || '';\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\np.draft = draft;\np.tweetText = draft + '\\n\\n' + String(p.url || u.url || '');\np.attempts = (p.attempts || 0) + 1;\np.lastError = '';\nst.pending[u.key] = p;\nreturn { json: { done: true, key: u.key, attempts: p.attempts } };\n"
+      },
+      "id": "n24",
+      "name": "Prepare Redraft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $json;\nconst p = (st.pending && st.pending[u.key]) || null;\nif (p && u.action === 'skip') {\n  p.status = 'skipped';\n  p.skippedAt = new Date().toISOString();\n  st.pending[u.key] = p;\n}\nreturn { json: { done: true, key: u.key, action: u.action } };\n"
+      },
+      "id": "n25",
+      "name": "Prepare Skip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst due = $('Plan Cycle').first().json.githubDue;\nreturn [{ json: { done: true, githubDue: due, at: new Date().toISOString() } }];\n"
+      },
+      "id": "n26",
+      "name": "Finalize Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst due = $('Plan Cycle').first().json.githubDue;\nreturn [{ json: { done: true, githubDue: due, at: new Date().toISOString() } }];\n"
+      },
+      "id": "n27",
+      "name": "No Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "n28",
+              "leftValue": "={{ $json.githubDue }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n29",
+      "name": "GitHub Due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2100,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst raw = String($env.TRACKED_REPOS || 'emiliano-go/trustsight,emiliano-go/rypipe,dbwarden-org/dbwarden');\nconst seen = new Set();\nconst items = [];\nfor (const part of raw.split(',')) {\n  const full = part.trim();\n  if (!full || !full.includes('/')) continue;\n  if (seen.has(full)) continue;\n  seen.add(full);\n  const bits = full.split('/');\n  items.push({ json: { owner: bits[0], repo: bits[1], full } });\n}\nreturn items;\n"
+      },
+      "id": "n30",
+      "name": "Tracked Repos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.owner }}/{{ $json.repo }}/releases?per_page=10",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n-github-tracker"
+            }
+          ]
+        },
+        "authentication": "none"
+      },
+      "id": "n31",
+      "name": "GitHub: Releases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2540,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $json.owner }}/{{ $json.repo }}/pulls?state=closed&sort=updated&direction=desc&per_page=30",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GITHUB_TOKEN }}"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n-github-tracker"
+            }
+          ]
+        },
+        "authentication": "none"
+      },
+      "id": "n32",
+      "name": "GitHub: Merged PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2540,
+        500
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst repo = $('Tracked Repos').item.json.full;\nconst arr = Array.isArray($json) ? $json : [$json];\nconst bad = !Array.isArray($json) && $json && typeof $json === 'object' && ($json.message || $json.documentation_url);\nreturn { json: { kind: 'release', repo, ok: !bad, payload: arr } };\n"
+      },
+      "id": "n33",
+      "name": "Tag Releases",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst repo = $('Tracked Repos').item.json.full;\nconst arr = Array.isArray($json) ? $json : [$json];\nconst bad = !Array.isArray($json) && $json && typeof $json === 'object' && ($json.message || $json.documentation_url);\nreturn { json: { kind: 'pull', repo, ok: !bad, payload: arr } };\n"
+      },
+      "id": "n34",
+      "name": "Tag Pulls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2,
+        "options": {}
+      },
+      "id": "n35",
+      "name": "Merge GitHub Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2920,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst now = Date.now();\nconst digestMs = Math.max(1, Number($env.DIGEST_HOURS || 24)) * 3600000;\n\nst.seen = st.seen || {};\nst.offered = st.offered || {};\nst.prQueue = st.prQueue || {};\nst.lastDigestAt = st.lastDigestAt || {};\n\nconst items = $input.all().map(i => i.json);\nconst byRepo = new Map();\nfor (const it of items) {\n  if (!it || !it.repo) continue;\n  if (!byRepo.has(it.repo)) byRepo.set(it.repo, { releases: [], pulls: [], okRelease: false, okPull: false });\n  const b = byRepo.get(it.repo);\n  if (it.kind === 'release') {\n    if (it.ok === true) b.okRelease = true;\n    if (Array.isArray(it.payload)) {\n      for (const x of it.payload) if (x && (x.id || x.tag_name)) b.releases.push(x);\n    }\n  } else if (it.kind === 'pull') {\n    if (it.ok === true) b.okPull = true;\n    if (Array.isArray(it.payload)) {\n      for (const x of it.payload) if (x && x.number) b.pulls.push(x);\n    }\n  }\n}\nif (!byRepo.size) return [];\n\nconst baseline = !st.initialized;\nconst complete = byRepo.size > 0 && [...byRepo.values()].every(b => b.okRelease || b.okPull);\nif (baseline && !complete) return [];\n\nfunction hash(s) {\n  let h = 2166136261;\n  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }\n  return (h >>> 0).toString(36);\n}\nfunction short(s, n) {\n  const t = String(s || '').replace(/\\s+/g, ' ').trim();\n  return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;\n}\nfunction firstSentence(s) {\n  const t = String(s || '').replace(/[#*_`>]/g, ' ').replace(/\\s+/g, ' ').trim();\n  const m = t.match(/^.{0,170}?[.!?](\\s|$)/);\n  return m ? m[0].trim() : short(t, 150);\n}\nfunction offered(sk) {\n  const t = st.offered[sk];\n  return !!t && (now - t) < 30 * 60000;\n}\n\nconst announcements = [];\n\nfor (const [full, b] of byRepo) {\n  const shortRepo = full.split('/')[1];\n\n  for (const rel of b.releases) {\n    if (!rel || rel.draft || rel.prerelease) continue;\n    const id = String(rel.id || rel.tag_name || '');\n    if (!id) continue;\n    const sk = full + '#release:' + id;\n    if (st.seen[sk] || offered(sk)) continue;\n    if (baseline) { st.seen[sk] = new Date(now).toISOString(); continue; }\n    const url = rel.html_url || ('https://github.com/' + full + '/releases/tag/' + rel.tag_name);\n    const name = rel.name || rel.tag_name || 'New release';\n    const notes = String(rel.body || '').trim();\n    st.offered[sk] = now;\n    announcements.push({\n      kind: 'release',\n      key: 'r' + hash(sk),\n      sk,\n      repo: full,\n      title: name,\n      url,\n      body: notes.slice(0, 4000),\n      featureNumbers: [],\n      systemPrompt: 'You write the X post for a developer shipping open source. The reader wants to know what changed. Rules: two sentences at most, under 220 characters. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Name the concrete change. Never invent numbers, features, or users. Sound like the person who wrote the code, not a marketing account. Return only the post text, no quotes, no URL.',\n      userPrompt: 'Repository: ' + full + '\\nRelease: ' + name + '\\nTag: ' + (rel.tag_name || '') + '\\nRelease notes:\\n' + (notes || '(No release notes supplied. Announce the release without inventing details.)'),\n      fallbackDraft: shortRepo + ' ' + (rel.tag_name || '') + ' is out' + (notes ? ': ' + firstSentence(notes) : '.')\n    });\n  }\n\n  if (!Array.isArray(st.prQueue[full])) st.prQueue[full] = [];\n  for (const pr of b.pulls) {\n    if (!pr || !pr.merged_at) continue;\n    const sk = full + '#pr:' + pr.number;\n    if (st.seen[sk]) continue;\n    st.seen[sk] = new Date(now).toISOString();\n    if (baseline) continue;\n    st.prQueue[full].push({\n      number: pr.number,\n      title: String(pr.title || ''),\n      url: pr.html_url,\n      mergedAt: pr.merged_at,\n      body: String(pr.body || '').slice(0, 600)\n    });\n  }\n\n  if (baseline) { st.lastDigestAt[full] = new Date(now).toISOString(); continue; }\n\n  const q = st.prQueue[full];\n  const last = Date.parse(st.lastDigestAt[full] || 0) || 0;\n  if (q.length && (now - last >= digestMs || q.length >= 8)) {\n    const nums = q.map(x => x.number);\n    const sk = full + '#features:' + nums[0] + '-' + nums[nums.length - 1];\n    if (st.seen[sk] || offered(sk)) continue;\n    st.offered[sk] = now;\n    const bullets = q.map(x => '- ' + x.title + (x.body ? ' — ' + short(x.body, 110) : '')).join('\\n');\n    announcements.push({\n      kind: 'features',\n      key: 'f' + hash(sk),\n      sk,\n      repo: full,\n      title: 'New in ' + shortRepo,\n      url: 'https://github.com/' + full + '/pulls?q=is%3Apr+is%3Amerged',\n      body: bullets,\n      featureNumbers: nums.slice(),\n      systemPrompt: 'You write the X post for a developer shipping open source, from a list of merged changes. Describe what shipped as capabilities. Rules: one or two sentences, under 220 characters, prose only. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Never mention pull requests, merges, commits, branches, or process. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Never invent details. Sound like the person who wrote the code. Return only the post text, no quotes, no URL.',\n      userPrompt: 'Project: ' + full + '\\nShipped:\\n' + bullets,\n      fallbackDraft: 'New in ' + shortRepo + ': ' + q.slice(0, 4).map(x => short(x.title, 55)).join(' · ')\n    });\n  }\n}\n\nif (baseline) st.initialized = true;\n\nconst seenKeys = Object.keys(st.seen);\nif (seenKeys.length > 4000) {\n  const sorted = seenKeys.sort((a, b) => (st.seen[a] < st.seen[b] ? 1 : -1));\n  const keep = {};\n  for (const k of sorted.slice(0, 3000)) keep[k] = st.seen[k];\n  st.seen = keep;\n}\nconst offeredKeys = Object.keys(st.offered);\nif (offeredKeys.length > 500) {\n  const keep = {};\n  for (const k of offeredKeys) if (offered(k)) keep[k] = st.offered[k];\n  st.offered = keep;\n}\nreturn announcements.map(json => ({ json }));\n"
+      },
+      "id": "n36",
+      "name": "Select Announcements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
+        "authentication": "none"
+      },
+      "id": "n37",
+      "name": "AI: Draft Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3300,
+        380
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst a = $('Select Announcements').item.json;\nconst resp = $json || {};\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\nconst aiUsed = String(draft || '').trim().length > 0;\ndraft = String(draft || '').trim();\nif (!draft) draft = a.fallbackDraft || a.title || '';\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\n// Humanizer pass: flatten a list the model slipped through, drop em/en dashes\n// and hashtags, then tidy the punctuation that replacement can leave behind.\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\nconst tweetText = draft + '\\n\\n' + a.url;\nconst label = a.kind === 'features' ? '✨ Features' : '🚀 Release';\nreturn { json: {\n  ...a,\n  draft,\n  tweetText,\n  tgText: label + ' — ' + a.repo + '\\n\\n' + tweetText + '\\n\\nApprove to publish this on X.' +\n    (aiUsed ? '' : '\\n\\n⚠️ Template draft — the model call failed. Check OPENAI_API_KEY and OPENAI_MODEL.'),\n  tgButtons: [[\n    { text: '✅ Post to X', callback_data: 'ok:' + a.key },\n    { text: '🔁 Re-draft', callback_data: 're:' + a.key },\n    { text: '🗑 Skip', callback_data: 'no:' + a.key }\n  ]]\n} };\n"
+      },
+      "id": "n38",
+      "name": "Prepare Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst a = $('Prepare Draft').item.json;\nst.pending = st.pending || {};\nst.pending[a.key] = {\n  key: a.key,\n  kind: a.kind,\n  repo: a.repo,\n  title: a.title,\n  url: a.url,\n  body: a.body,\n  draft: a.draft,\n  tweetText: a.tweetText,\n  status: 'pending',\n  attempts: 0,\n  createdAt: new Date().toISOString(),\n  sk: a.sk,\n  featureNumbers: a.featureNumbers || []\n};\nst.seen[a.sk] = new Date().toISOString();\ndelete st.offered[a.sk];\nif (a.kind === 'features' && a.featureNumbers && a.featureNumbers.length) {\n  const done = new Set(a.featureNumbers);\n  st.prQueue[a.repo] = (st.prQueue[a.repo] || []).filter(x => !done.has(x.number));\n  st.lastDigestAt[a.repo] = new Date().toISOString();\n}\nreturn { json: { queued: true, key: a.key } };\n"
+      },
+      "id": "n39",
+      "name": "Record Pending",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        380
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "DSH Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "DSH Approval API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DSH Approval API": {
+      "main": [
+        [
+          {
+            "node": "Needs Draft?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Draft?": {
+      "main": [
+        [
+          {
+            "node": "AI: Draft Manual",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Draft Manual": {
+      "main": [
+        [
+          {
+            "node": "Store Manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Manual": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Plan Cycle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Cycle": {
+      "main": [
+        [
+          {
+            "node": "Read Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Queue": {
+      "main": [
+        [
+          {
+            "node": "Has Actions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Actions?": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Sign X Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Redraft Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Skip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Skip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign X Post": {
+      "main": [
+        [
+          {
+            "node": "Post to X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to X": {
+      "main": [
+        [
+          {
+            "node": "Prepare Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Posted": {
+      "main": [
+        [
+          {
+            "node": "Finalize Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Redraft Request": {
+      "main": [
+        [
+          {
+            "node": "Draft Again",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Again": {
+      "main": [
+        [
+          {
+            "node": "Prepare Redraft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Redraft": {
+      "main": [
+        [
+          {
+            "node": "Finalize Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Skip": {
+      "main": [
+        [
+          {
+            "node": "Finalize Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Update": {
+      "main": [
+        [
+          {
+            "node": "GitHub Due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Updates": {
+      "main": [
+        [
+          {
+            "node": "GitHub Due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub Due?": {
+      "main": [
+        [
+          {
+            "node": "Tracked Repos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Tracked Repos": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Releases",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GitHub: Merged PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Releases": {
+      "main": [
+        [
+          {
+            "node": "Tag Releases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Merged PRs": {
+      "main": [
+        [
+          {
+            "node": "Tag Pulls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Releases": {
+      "main": [
+        [
+          {
+            "node": "Merge GitHub Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Pulls": {
+      "main": [
+        [
+          {
+            "node": "Merge GitHub Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge GitHub Data": {
+      "main": [
+        [
+          {
+            "node": "Select Announcements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Announcements": {
+      "main": [
+        [
+          {
+            "node": "AI: Draft Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Draft Post": {
+      "main": [
+        [
+          {
+            "node": "Prepare Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Draft": {
+      "main": [
+        [
+          {
+            "node": "Record Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo"
+  },
+  "versionId": "7f3c1d20-0000-4000-8000-000000000001",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

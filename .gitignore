@@ -1,0 +1,7 @@
+# Local secrets and state
+.env
+data/
+*.log
+
+# OS noise
+.DS_Store
