@@ -73,12 +73,15 @@ for (const key of Object.keys(queued)) {
 st.dshActions = {};
 
 const gap = Math.max(1, Number($env.POST_INTERVAL_MINUTES || 15)) * 60000;
-const lastPost = Number(st.lastPostAt || 0);
-if (st.postQueue.length && now - lastPost >= gap) {
+const jitter = Math.max(0, Number($env.POST_JITTER_MINUTES ?? 2)) * 60000;
+const nextSlot = Number(st.nextPostAt || 0);
+if (st.postQueue.length && (!nextSlot || now >= nextSlot)) {
   const next = st.postQueue.shift();
   const entry = st.pending ? st.pending[next.key] : null;
   if (entry && entry.status === 'pending') {
     st.lastPostAt = now;
+    // Each gap is the interval plus a random offset, down to the second.
+    st.nextPostAt = now + gap + (Math.random() * 2 - 1) * jitter;
     out.push({
       action: 'approve',
       key: next.key,
@@ -92,8 +95,6 @@ if (st.postQueue.length && now - lastPost >= gap) {
       tweetText: entry.tweetText,
       attempts: entry.attempts || 0
     });
-  } else if (st.postQueue.length) {
-    st.lastPostAt = lastPost;
   }
 }
 if (!out.length) out.push({ action: 'none' });

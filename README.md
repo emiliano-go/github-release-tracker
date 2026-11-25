@@ -99,7 +99,8 @@ curl -s http://localhost:5678/webhook/totem-approvals \
 ```
 
 Approved posts join a queue and are published one at a time, 15 minutes apart by
-default, so a batch never lands as a burst. Re-drafts and skips apply on the next
+default, plus or minus two minutes of jitter, so a batch never lands as a burst
+and never at exactly the same offset. Re-drafts and skips apply on the next
 cycle, within two minutes. Manual notes are drafted inside the request and appear in
 the list straight away.
 
@@ -113,6 +114,7 @@ the list straight away.
 | `DIGEST_HOURS` | 24 | How often merged PRs are summarised |
 | `DIGEST_QUIET_MINUTES` | 60 | Wait for the burst to stop before writing the digest |
 | `POST_INTERVAL_MINUTES` | 15 | Approved posts are published this far apart |
+| `POST_JITTER_MINUTES` | 2 | Each gap varies by up to this much |
 | `OPENAI_API_KEY` | empty | Draft writing |
 | `OPENAI_BASE_URL` | Gemini OpenAI endpoint | Any compatible endpoint |
 | `OPENAI_MODEL` | `gemini-3.5-flash` | Model id |
