@@ -700,7 +700,7 @@ GH_HEADERS = [
 TG = "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/"
 OPENAI_URL = "={{ $json.endpoint || ((($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions') }}"
 OPENAI_BODY = (
-    "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, "
+    "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, max_tokens: 700, "
     "messages: [{ role: 'system', content: $json.systemPrompt }, "
     "{ role: 'user', content: $json.userPrompt }] }) }}"
 )
