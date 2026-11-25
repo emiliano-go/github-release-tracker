@@ -305,6 +305,28 @@ console.log("Manual enqueue");
   check("manual post without a link has no trailing blank lines", item.tweetText === item.draft);
 }
 
+console.log("Paced posting queue");
+{
+  const st = {
+    v: 1, initialized: true, seen: {}, offered: {}, prQueue: {}, lastDigestAt: {},
+    pending: { k1: { kind: "release", repo: "a/b", status: "pending", draft: "one", tweetText: "one" },
+               k2: { kind: "release", repo: "a/b", status: "pending", draft: "two", tweetText: "two" } },
+    dshActions: { k1: "ok", k2: "ok" },
+  };
+  const rt = makeRuntime(st);
+  const first = run("Read Queue", rt, {});
+  const released = first.filter((i) => i.json.action === "approve");
+  check("one approval publishes on the first slot", released.length === 1 && released[0].json.key === "k1");
+  check("the second waits in the queue", st.postQueue.length === 1 && st.postQueue[0].key === "k2");
+  const second = run("Read Queue", rt, {});
+  check("the next slot is not released early", !second.some((i) => i.json.action === "approve"));
+  st.lastPostAt = Date.now() - 16 * 60_000;
+  const third = run("Read Queue", rt, {});
+  const later = third.filter((i) => i.json.action === "approve");
+  check("fifteen minutes later the next one goes", later.length === 1 && later[0].json.key === "k2");
+  check("queue empties", st.postQueue.length === 0);
+}
+
 console.log("Sign X Post");
 {
   const realRandom = Math.random;

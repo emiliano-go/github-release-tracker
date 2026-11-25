@@ -43,8 +43,10 @@ return [{ json: { configured, githubDue: configured && due, tgOffset: st.tgOffse
 QUEUE = r"""
 const st = $getWorkflowStaticData('global');
 const xEnabled = String($env.X_ENABLED || '').toLowerCase() === 'true';
+const now = Date.now();
 const queued = st.dshActions || {};
 const out = [];
+st.postQueue = Array.isArray(st.postQueue) ? st.postQueue : [];
 for (const key of Object.keys(queued)) {
   const act = queued[key];
   const p = st.pending ? st.pending[key] : null;
@@ -61,9 +63,39 @@ for (const key of Object.keys(queued)) {
     item.tweetText = p.tweetText;
     item.attempts = p.attempts || 0;
   }
+  // Approvals wait in a paced queue instead of publishing on the next cycle.
+  if (action === 'approve') {
+    if (!st.postQueue.some((q) => q.key === key)) st.postQueue.push({ key, at: now });
+    continue;
+  }
   out.push(item);
 }
 st.dshActions = {};
+
+const gap = Math.max(1, Number($env.POST_INTERVAL_MINUTES || 15)) * 60000;
+const lastPost = Number(st.lastPostAt || 0);
+if (st.postQueue.length && now - lastPost >= gap) {
+  const next = st.postQueue.shift();
+  const entry = st.pending ? st.pending[next.key] : null;
+  if (entry && entry.status === 'pending') {
+    st.lastPostAt = now;
+    out.push({
+      action: 'approve',
+      key: next.key,
+      source: 'dsh',
+      repo: entry.repo,
+      kind: entry.kind,
+      title: entry.title,
+      url: entry.url,
+      body: entry.body,
+      draft: entry.draft,
+      tweetText: entry.tweetText,
+      attempts: entry.attempts || 0
+    });
+  } else if (st.postQueue.length) {
+    st.lastPostAt = lastPost;
+  }
+}
 if (!out.length) out.push({ action: 'none' });
 return out.map(json => ({ json }));
 """
@@ -84,7 +116,7 @@ PREPARE_POSTED = r"""
 const st = $getWorkflowStaticData('global');
 const u = $('Read Queue').item.json;
 const resp = $json || {};
-const postId = resp && resp.data && resp.data.id ? resp.data.id : (resp && resp.id ? resp.id : null);
+const postId = resp && resp.data && resp.data.id ? resp.data.id : (resp && (resp.id || resp.url) ? (resp.id || resp.url) : null);
 const p = (st.pending && st.pending[u.key]) || {};
 if (postId) {
   p.status = 'posted';
@@ -731,10 +763,10 @@ nodes.append(node(
 nodes.append(code("Sign X Post", SIGN_X, [1000, 80], each=True))
 nodes.append(http(
     "Post to X",
-    "https://api.x.com/2/tweets",
+    "={{ ($env.POSTER_URL || 'http://192.168.31.200:8099') + '/post' }}",
     [1220, 80],
     method="POST",
-    headers=[("Content-Type", "application/json"), ("Authorization", "={{ $json.authorization }}")],
+    headers=[("Content-Type", "application/json"), ("Authorization", "=Bearer {{ $env.POSTER_TOKEN }}")],
     body="={{ JSON.stringify({ text: $json.text }) }}",
     on_error="continueRegularOutput",
 ))

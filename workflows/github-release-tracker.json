@@ -172,7 +172,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst xEnabled = String($env.X_ENABLED || '').toLowerCase() === 'true';\nconst queued = st.dshActions || {};\nconst out = [];\nfor (const key of Object.keys(queued)) {\n  const act = queued[key];\n  const p = st.pending ? st.pending[key] : null;\n  let action = act === 'ok' ? (xEnabled ? 'approve' : 'xdisabled') : act === 're' ? 'redraft' : 'skip';\n  if (!p || p.status !== 'pending') action = 'expired';\n  const item = { action, key, source: 'dsh' };\n  if (p) {\n    item.repo = p.repo;\n    item.kind = p.kind;\n    item.title = p.title;\n    item.url = p.url;\n    item.body = p.body;\n    item.draft = p.draft;\n    item.tweetText = p.tweetText;\n    item.attempts = p.attempts || 0;\n  }\n  out.push(item);\n}\nst.dshActions = {};\nif (!out.length) out.push({ action: 'none' });\nreturn out.map(json => ({ json }));\n"
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst xEnabled = String($env.X_ENABLED || '').toLowerCase() === 'true';\nconst now = Date.now();\nconst queued = st.dshActions || {};\nconst out = [];\nst.postQueue = Array.isArray(st.postQueue) ? st.postQueue : [];\nfor (const key of Object.keys(queued)) {\n  const act = queued[key];\n  const p = st.pending ? st.pending[key] : null;\n  let action = act === 'ok' ? (xEnabled ? 'approve' : 'xdisabled') : act === 're' ? 'redraft' : 'skip';\n  if (!p || p.status !== 'pending') action = 'expired';\n  const item = { action, key, source: 'dsh' };\n  if (p) {\n    item.repo = p.repo;\n    item.kind = p.kind;\n    item.title = p.title;\n    item.url = p.url;\n    item.body = p.body;\n    item.draft = p.draft;\n    item.tweetText = p.tweetText;\n    item.attempts = p.attempts || 0;\n  }\n  // Approvals wait in a paced queue instead of publishing on the next cycle.\n  if (action === 'approve') {\n    if (!st.postQueue.some((q) => q.key === key)) st.postQueue.push({ key, at: now });\n    continue;\n  }\n  out.push(item);\n}\nst.dshActions = {};\n\nconst gap = Math.max(1, Number($env.POST_INTERVAL_MINUTES || 15)) * 60000;\nconst lastPost = Number(st.lastPostAt || 0);\nif (st.postQueue.length && now - lastPost >= gap) {\n  const next = st.postQueue.shift();\n  const entry = st.pending ? st.pending[next.key] : null;\n  if (entry && entry.status === 'pending') {\n    st.lastPostAt = now;\n    out.push({\n      action: 'approve',\n      key: next.key,\n      source: 'dsh',\n      repo: entry.repo,\n      kind: entry.kind,\n      title: entry.title,\n      url: entry.url,\n      body: entry.body,\n      draft: entry.draft,\n      tweetText: entry.tweetText,\n      attempts: entry.attempts || 0\n    });\n  } else if (st.postQueue.length) {\n    st.lastPostAt = lastPost;\n  }\n}\nif (!out.length) out.push({ action: 'none' });\nreturn out.map(json => ({ json }));\n"
       },
       "id": "n10",
       "name": "Read Queue",
@@ -354,7 +354,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.x.com/2/tweets",
+        "url": "={{ ($env.POSTER_URL || 'http://192.168.31.200:8099') + '/post' }}",
         "options": {
           "timeout": 60000
         },
@@ -367,7 +367,7 @@
             },
             {
               "name": "Authorization",
-              "value": "={{ $json.authorization }}"
+              "value": "=Bearer {{ $env.POSTER_TOKEN }}"
             }
           ]
         },
@@ -390,7 +390,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $('Read Queue').item.json;\nconst resp = $json || {};\nconst postId = resp && resp.data && resp.data.id ? resp.data.id : (resp && resp.id ? resp.id : null);\nconst p = (st.pending && st.pending[u.key]) || {};\nif (postId) {\n  p.status = 'posted';\n  p.postId = String(postId);\n  p.postedAt = new Date().toISOString();\n  p.lastError = '';\n} else {\n  const err = (resp && (resp.detail || resp.title || (resp.error && resp.error.message) || resp.message)) || 'X rejected the post';\n  p.lastError = String(err).slice(0, 180);\n}\nst.pending[u.key] = p;\nreturn { json: { done: true, key: u.key, posted: !!postId, error: p.lastError || '' } };\n"
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $('Read Queue').item.json;\nconst resp = $json || {};\nconst postId = resp && resp.data && resp.data.id ? resp.data.id : (resp && (resp.id || resp.url) ? (resp.id || resp.url) : null);\nconst p = (st.pending && st.pending[u.key]) || {};\nif (postId) {\n  p.status = 'posted';\n  p.postId = String(postId);\n  p.postedAt = new Date().toISOString();\n  p.lastError = '';\n} else {\n  const err = (resp && (resp.detail || resp.title || (resp.error && resp.error.message) || resp.message)) || 'X rejected the post';\n  p.lastError = String(err).slice(0, 180);\n}\nst.pending[u.key] = p;\nreturn { json: { done: true, key: u.key, posted: !!postId, error: p.lastError || '' } };\n"
       },
       "id": "n21",
       "name": "Prepare Posted",
