@@ -118,6 +118,7 @@ the list straight away.
 | `OPENAI_API_KEY` | empty | Draft writing |
 | `OPENAI_BASE_URL` | Gemini OpenAI endpoint | Any compatible endpoint |
 | `OPENAI_MODEL` | `gemini-3.5-flash` | Model id |
+| `OPENAI_FALLBACK_MODELS` | see `.env.example` | Also tried, in order, when a model refuses |
 | `X_ENABLED` | false | Gate on publishing |
 | `X_CONSUMER_KEY` / `X_CONSUMER_SECRET` | empty | App keys |
 | `X_ACCESS_TOKEN` / `X_ACCESS_TOKEN_SECRET` | empty | User context |

@@ -134,8 +134,15 @@ return { json: { done: true, key: u.key, posted: !!postId, error: p.lastError ||
 
 PREPARE_REDRAFT = r"""
 const st = $getWorkflowStaticData('global');
-const u = $('Build Redraft Request').item.json;
-const resp = $json || {};
+const all = (typeof $input !== 'undefined' && $input.all) ? $input.all() : [];
+if (!all.length) all.push({ json: $json || {} });
+const pick = all.find((i) => {
+  try { return String(i.json.choices[0].message.content || '').trim().length > 0; } catch (e) { return false; }
+}) || all[0];
+const resp = (pick && pick.json) || {};
+let src = {};
+try { src = $('Build Redraft Request').first().json || {}; } catch (e) { src = {}; }
+const u = { ...src, ...resp };
 const p = (st.pending && st.pending[u.key]) || {};
 let draft = '';
 try { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }
@@ -470,9 +477,27 @@ const bad = !Array.isArray($json) && $json && typeof $json === 'object' && ($jso
 return { json: { kind: 'pull', repo, ok: !bad, payload: arr } };
 """
 
+MODEL_FANOUT = r"""
+const primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');
+const extra = String($env.OPENAI_FALLBACK_MODELS || '')
+  .split(',').map((m) => m.trim()).filter((m) => m.length > 0 && m !== primary);
+const models = [primary].concat(extra);
+const out = [];
+for (const item of $input.all()) {
+  const j = item.json;
+  for (const model of models) out.push({ json: { ...j, model, __a: j, __models: models.length } });
+}
+return out;
+"""
+
 PREPARE_DRAFT = r"""
-const a = $('Select Announcements').item.json;
-const resp = $json || {};
+const all = (typeof $input !== 'undefined' && $input.all) ? $input.all() : [];
+if (!all.length) all.push({ json: $json || {} });
+const pick = all.find((i) => {
+  try { return String(i.json.choices[0].message.content || '').trim().length > 0; } catch (e) { return false; }
+}) || all[0];
+const resp = (pick && pick.json) || {};
+const a = resp.__a || $('Select Announcements').first().json;
 let draft = '';
 try { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }
 const aiUsed = String(draft || '').trim().length > 0;
@@ -659,7 +684,7 @@ GH_HEADERS = [
 TG = "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/"
 OPENAI_URL = "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}"
 OPENAI_BODY = (
-    "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, "
+    "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, "
     "messages: [{ role: 'system', content: $json.systemPrompt }, "
     "{ role: 'user', content: $json.userPrompt }] }) }}"
 )
@@ -776,6 +801,7 @@ nodes.append(http(
 nodes.append(code("Prepare Posted", PREPARE_POSTED, [1440, 80], each=True))
 
 nodes.append(code("Build Redraft Request", BUILD_REDRAFT, [1000, 300], each=True))
+nodes.append(code("Redraft Fanout", MODEL_FANOUT, [1100, 300]))
 nodes.append(http(
     "Draft Again",
     OPENAI_URL,
@@ -786,7 +812,7 @@ nodes.append(http(
     on_error="continueRegularOutput",
     retry=(5, 8000),
 ))
-nodes.append(code("Prepare Redraft", PREPARE_REDRAFT, [1440, 300], each=True))
+nodes.append(code("Prepare Redraft", PREPARE_REDRAFT, [1440, 300]))
 
 nodes.append(code("Prepare Skip", PREPARE_SKIP, [1000, 520], each=True))
 
@@ -832,7 +858,8 @@ nodes.append(http(
     on_error="continueRegularOutput",
     retry=(5, 8000),
 ))
-nodes.append(code("Prepare Draft", PREPARE_DRAFT, [3520, 380], each=True))
+nodes.append(code("Model Fanout", MODEL_FANOUT, [3080, 380]))
+nodes.append(code("Prepare Draft", PREPARE_DRAFT, [3520, 380]))
 
 nodes.append(code("Record Pending", RECORD, [3960, 380], each=True))
 
@@ -863,7 +890,8 @@ connections = {
     "Sign X Post": {"main": [[edge("Post to X")]]},
     "Post to X": {"main": [[edge("Prepare Posted")]]},
     "Prepare Posted": {"main": [[edge("Finalize Update")]]},
-    "Build Redraft Request": {"main": [[edge("Draft Again")]]},
+    "Build Redraft Request": {"main": [[edge("Redraft Fanout")]]},
+    "Redraft Fanout": {"main": [[edge("Draft Again")]]},
     "Draft Again": {"main": [[edge("Prepare Redraft")]]},
     "Prepare Redraft": {"main": [[edge("Finalize Update")]]},
     "Prepare Skip": {"main": [[edge("Finalize Update")]]},
@@ -877,7 +905,8 @@ connections = {
     "Tag Releases": {"main": [[edge("Merge GitHub Data")]]},
     "Tag Pulls": {"main": [[{"node": "Merge GitHub Data", "type": "main", "index": 1}]]},
     "Merge GitHub Data": {"main": [[edge("Select Announcements")]]},
-    "Select Announcements": {"main": [[edge("AI: Draft Post")]]},
+    "Select Announcements": {"main": [[edge("Model Fanout")]]},
+    "Model Fanout": {"main": [[edge("AI: Draft Post")]]},
     "AI: Draft Post": {"main": [[edge("Prepare Draft")]]},
     "Prepare Draft": {"main": [[edge("Record Pending")]]},
 }

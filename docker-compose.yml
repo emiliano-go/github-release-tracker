@@ -44,6 +44,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
       OPENAI_MODEL: ${OPENAI_MODEL:-gemini-3.5-flash}
+      OPENAI_FALLBACK_MODELS: ${OPENAI_FALLBACK_MODELS:-gemini-3.8-flash,gemini-3.7-flash,gemini-3.1-flash-lite}
     volumes:
       - ./data:/home/node/.n8n
       - ./workflows:/workflows:ro

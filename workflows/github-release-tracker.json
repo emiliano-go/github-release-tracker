@@ -88,7 +88,7 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
         "authentication": "none"
       },
       "id": "n05",
@@ -417,6 +417,20 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');\nconst extra = String($env.OPENAI_FALLBACK_MODELS || '')\n  .split(',').map((m) => m.trim()).filter((m) => m.length > 0 && m !== primary);\nconst models = [primary].concat(extra);\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const model of models) out.push({ json: { ...j, model, __a: j, __models: models.length } });\n}\nreturn out;\n"
+      },
+      "id": "n23",
+      "name": "Redraft Fanout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
         "options": {
@@ -438,10 +452,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
         "authentication": "none"
       },
-      "id": "n23",
+      "id": "n24",
       "name": "Draft Again",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -456,10 +470,10 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $('Build Redraft Request').item.json;\nconst resp = $json || {};\nconst p = (st.pending && st.pending[u.key]) || {};\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\ndraft = String(draft || '').trim();\nif (!draft) draft = p.draft || u.title || '';\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\np.draft = draft;\np.tweetText = draft + '\\n\\n' + String(p.url || u.url || '');\np.attempts = (p.attempts || 0) + 1;\np.lastError = '';\nst.pending[u.key] = p;\nreturn { json: { done: true, key: u.key, attempts: p.attempts } };\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst all = (typeof $input !== 'undefined' && $input.all) ? $input.all() : [];\nif (!all.length) all.push({ json: $json || {} });\nconst pick = all.find((i) => {\n  try { return String(i.json.choices[0].message.content || '').trim().length > 0; } catch (e) { return false; }\n}) || all[0];\nconst resp = (pick && pick.json) || {};\nlet src = {};\ntry { src = $('Build Redraft Request').first().json || {}; } catch (e) { src = {}; }\nconst u = { ...src, ...resp };\nconst p = (st.pending && st.pending[u.key]) || {};\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\ndraft = String(draft || '').trim();\nif (!draft) draft = p.draft || u.title || '';\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\np.draft = draft;\np.tweetText = draft + '\\n\\n' + String(p.url || u.url || '');\np.attempts = (p.attempts || 0) + 1;\np.lastError = '';\nst.pending[u.key] = p;\nreturn { json: { done: true, key: u.key, attempts: p.attempts } };\n"
       },
-      "id": "n24",
+      "id": "n25",
       "name": "Prepare Redraft",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -473,7 +487,7 @@
         "mode": "runOnceForEachItem",
         "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst u = $json;\nconst p = (st.pending && st.pending[u.key]) || null;\nif (p && u.action === 'skip') {\n  p.status = 'skipped';\n  p.skippedAt = new Date().toISOString();\n  st.pending[u.key] = p;\n}\nreturn { json: { done: true, key: u.key, action: u.action } };\n"
       },
-      "id": "n25",
+      "id": "n26",
       "name": "Prepare Skip",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -487,7 +501,7 @@
         "mode": "runOnceForAllItems",
         "jsCode": "\nconst due = $('Plan Cycle').first().json.githubDue;\nreturn [{ json: { done: true, githubDue: due, at: new Date().toISOString() } }];\n"
       },
-      "id": "n26",
+      "id": "n27",
       "name": "Finalize Update",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -501,7 +515,7 @@
         "mode": "runOnceForAllItems",
         "jsCode": "\nconst due = $('Plan Cycle').first().json.githubDue;\nreturn [{ json: { done: true, githubDue: due, at: new Date().toISOString() } }];\n"
       },
-      "id": "n27",
+      "id": "n28",
       "name": "No Updates",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -520,7 +534,7 @@
           },
           "conditions": [
             {
-              "id": "n28",
+              "id": "n29",
               "leftValue": "={{ $json.githubDue }}",
               "rightValue": "",
               "operator": {
@@ -533,7 +547,7 @@
         },
         "options": {}
       },
-      "id": "n29",
+      "id": "n30",
       "name": "GitHub Due?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -547,7 +561,7 @@
         "mode": "runOnceForAllItems",
         "jsCode": "\nconst raw = String($env.TRACKED_REPOS || 'emiliano-go/trustsight,emiliano-go/trustsight-feed,emiliano-go/trustsight-harness,emiliano-go/trustsight-web,emiliano-go/trustsight-triage-agent,emiliano-go/trustsight-lab,emiliano-go/rypipe,dbwarden-org/dbwarden');\nconst seen = new Set();\nconst items = [];\nfor (const part of raw.split(',')) {\n  const full = part.trim();\n  if (!full || !full.includes('/')) continue;\n  if (seen.has(full)) continue;\n  seen.add(full);\n  const bits = full.split('/');\n  items.push({ json: { owner: bits[0], repo: bits[1], full } });\n}\nreturn items;\n"
       },
-      "id": "n30",
+      "id": "n31",
       "name": "Tracked Repos",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -586,7 +600,7 @@
         },
         "authentication": "none"
       },
-      "id": "n31",
+      "id": "n32",
       "name": "GitHub: Releases",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -629,7 +643,7 @@
         },
         "authentication": "none"
       },
-      "id": "n32",
+      "id": "n33",
       "name": "GitHub: Merged PRs",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -647,7 +661,7 @@
         "mode": "runOnceForEachItem",
         "jsCode": "\nconst repo = $('Tracked Repos').item.json.full;\nconst arr = Array.isArray($json) ? $json : [$json];\nconst bad = !Array.isArray($json) && $json && typeof $json === 'object' && ($json.message || $json.documentation_url);\nreturn { json: { kind: 'release', repo, ok: !bad, payload: arr } };\n"
       },
-      "id": "n33",
+      "id": "n34",
       "name": "Tag Releases",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -661,7 +675,7 @@
         "mode": "runOnceForEachItem",
         "jsCode": "\nconst repo = $('Tracked Repos').item.json.full;\nconst arr = Array.isArray($json) ? $json : [$json];\nconst bad = !Array.isArray($json) && $json && typeof $json === 'object' && ($json.message || $json.documentation_url);\nreturn { json: { kind: 'pull', repo, ok: !bad, payload: arr } };\n"
       },
-      "id": "n34",
+      "id": "n35",
       "name": "Tag Pulls",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -676,7 +690,7 @@
         "numberInputs": 2,
         "options": {}
       },
-      "id": "n35",
+      "id": "n36",
       "name": "Merge GitHub Data",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3,
@@ -690,7 +704,7 @@
         "mode": "runOnceForAllItems",
         "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst now = Date.now();\nconst digestMs = Math.max(1, Number($env.DIGEST_HOURS || 2)) * 3600000;\n\nst.seen = st.seen || {};\nst.offered = st.offered || {};\nst.prQueue = st.prQueue || {};\nst.lastDigestAt = st.lastDigestAt || {};\n\nconst items = $input.all().map(i => i.json);\nconst byRepo = new Map();\nfor (const it of items) {\n  if (!it || !it.repo) continue;\n  if (!byRepo.has(it.repo)) byRepo.set(it.repo, { releases: [], pulls: [], okRelease: false, okPull: false });\n  const b = byRepo.get(it.repo);\n  if (it.kind === 'release') {\n    if (it.ok === true) b.okRelease = true;\n    if (Array.isArray(it.payload)) {\n      for (const x of it.payload) if (x && (x.id || x.tag_name)) b.releases.push(x);\n    }\n  } else if (it.kind === 'pull') {\n    if (it.ok === true) b.okPull = true;\n    if (Array.isArray(it.payload)) {\n      for (const x of it.payload) if (x && x.number) b.pulls.push(x);\n    }\n  }\n}\nif (!byRepo.size) return [];\n\nconst baseline = !st.initialized;\nconst complete = byRepo.size > 0 && [...byRepo.values()].every(b => b.okRelease || b.okPull);\nif (baseline && !complete) return [];\n\nfunction hash(s) {\n  let h = 2166136261;\n  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }\n  return (h >>> 0).toString(36);\n}\nfunction short(s, n) {\n  const t = String(s || '').replace(/\\s+/g, ' ').trim();\n  return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;\n}\nfunction firstSentence(s) {\n  const t = String(s || '').replace(/[#*_`>]/g, ' ').replace(/\\s+/g, ' ').trim();\n  const m = t.match(/^.{0,170}?[.!?](\\s|$)/);\n  return m ? m[0].trim() : short(t, 150);\n}\nfunction offered(sk) {\n  const t = st.offered[sk];\n  return !!t && (now - t) < 30 * 60000;\n}\n\nconst announcements = [];\n\nfor (const [full, b] of byRepo) {\n  const shortRepo = full.split('/')[1];\n  const firstRun = !Object.prototype.hasOwnProperty.call(st.lastDigestAt, full);\n\n  for (const rel of b.releases) {\n    if (!rel || rel.draft || rel.prerelease) continue;\n    const id = String(rel.id || rel.tag_name || '');\n    if (!id) continue;\n    const sk = full + '#release:' + id;\n    if (st.seen[sk] || offered(sk)) continue;\n    if (firstRun) { st.seen[sk] = new Date(now).toISOString(); continue; }\n    const url = rel.html_url || ('https://github.com/' + full + '/releases/tag/' + rel.tag_name);\n    const name = rel.name || rel.tag_name || 'New release';\n    const notes = String(rel.body || '').trim();\n    st.offered[sk] = now;\n    announcements.push({\n      kind: 'release',\n      key: 'r' + hash(sk),\n      sk,\n      repo: full,\n      title: name,\n      url,\n      body: notes.slice(0, 4000),\n      featureNumbers: [],\n      systemPrompt: 'You write the X post for a developer shipping open source. The reader wants to know what changed. Rules: two sentences at most, under 220 characters. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Name the concrete change. Never invent numbers, features, or users. Sound like the person who wrote the code, not a marketing account. Return only the post text, no quotes, no URL.',\n      userPrompt: 'Repository: ' + full + '\\nRelease: ' + name + '\\nTag: ' + (rel.tag_name || '') + '\\nRelease notes:\\n' + (notes || '(No release notes supplied. Announce the release without inventing details.)'),\n      fallbackDraft: shortRepo + ' ' + (rel.tag_name || '') + ' is out' + (notes ? ': ' + firstSentence(notes) : '.')\n    });\n  }\n\n  if (!Array.isArray(st.prQueue[full])) st.prQueue[full] = [];\n  for (const pr of b.pulls) {\n    if (!pr || !pr.merged_at) continue;\n    const sk = full + '#pr:' + pr.number;\n    if (st.seen[sk]) continue;\n    st.seen[sk] = new Date(now).toISOString();\n    if (firstRun) continue;\n    st.prQueue[full].push({\n      number: pr.number,\n      title: String(pr.title || ''),\n      url: pr.html_url,\n      mergedAt: pr.merged_at,\n      body: String(pr.body || '').slice(0, 600)\n    });\n  }\n\n  if (firstRun) { st.lastDigestAt[full] = new Date(now).toISOString(); continue; }\n\n  const q = st.prQueue[full];\n  const last = Date.parse(st.lastDigestAt[full] || 0) || 0;\n  const newest = q.reduce((m, x) => Math.max(m, Date.parse(x.mergedAt) || 0), 0);\n  const quietMs = Math.max(0, Number($env.DIGEST_QUIET_MINUTES || 30)) * 60000;\n  const settled = (now - newest) >= quietMs;\n  const dueByTime = now - last >= digestMs;\n  const starved = now - last >= digestMs * 2;\n  if (q.length && (starved || (dueByTime && settled) || q.length >= 8)) {\n    const nums = q.map(x => x.number);\n    const sk = full + '#features:' + nums[0] + '-' + nums[nums.length - 1];\n    if (st.seen[sk] || offered(sk)) continue;\n    st.offered[sk] = now;\n    const bullets = q.map((x, i) => (i + 1) + '. ' + x.title + (x.body ? ' — ' + short(x.body, 110) : '')).join('\\n');\n    announcements.push({\n      kind: 'features',\n      key: 'f' + hash(sk),\n      sk,\n      repo: full,\n      title: 'New in ' + shortRepo,\n      url: 'https://github.com/' + full,\n      body: bullets,\n      featureNumbers: nums.slice(),\n      systemPrompt: 'You write the X post for a developer shipping open source, from a list of merged changes. Describe what shipped as capabilities. Rules: one or two sentences, under 230 characters, prose only. Mention every numbered change in the list with at least a few words each; compress related ones into one clause and never drop an item. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Never mention pull requests, merges, commits, branches, or process. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y. No closing line that restates the point. Never invent details. Sound like the person who wrote the code. Return only the post text, no quotes, no URL.',\n      userPrompt: 'Project: ' + full + '\\nShipped:\\n' + bullets,\n      fallbackDraft: 'New in ' + shortRepo + ': ' + q.slice(0, 4).map(x => short(x.title, 55)).join(' · ')\n    });\n  }\n}\n\nif (baseline) st.initialized = true;\n\nconst seenKeys = Object.keys(st.seen);\nif (seenKeys.length > 4000) {\n  const sorted = seenKeys.sort((a, b) => (st.seen[a] < st.seen[b] ? 1 : -1));\n  const keep = {};\n  for (const k of sorted.slice(0, 3000)) keep[k] = st.seen[k];\n  st.seen = keep;\n}\nconst offeredKeys = Object.keys(st.offered);\nif (offeredKeys.length > 500) {\n  const keep = {};\n  for (const k of offeredKeys) if (offered(k)) keep[k] = st.offered[k];\n  st.offered = keep;\n}\nreturn announcements.map(json => ({ json }));\n"
       },
-      "id": "n36",
+      "id": "n37",
       "name": "Select Announcements",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -722,10 +736,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, messages: [{ role: 'system', content: $json.systemPrompt }, { role: 'user', content: $json.userPrompt }] }) }}",
         "authentication": "none"
       },
-      "id": "n37",
+      "id": "n38",
       "name": "AI: Draft Post",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -740,10 +754,24 @@
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "\nconst a = $('Select Announcements').item.json;\nconst resp = $json || {};\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\nconst aiUsed = String(draft || '').trim().length > 0;\ndraft = String(draft || '').trim();\nif (!draft) draft = a.fallbackDraft || a.title || '';\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\n// Humanizer pass: flatten a list the model slipped through, drop em/en dashes\n// and hashtags, then tidy the punctuation that replacement can leave behind.\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\nconst tweetText = draft + '\\n\\n' + a.url;\nconst label = a.kind === 'features' ? '✨ Features' : '🚀 Release';\nreturn { json: {\n  ...a,\n  draft,\n  tweetText,\n  tgText: label + ' — ' + a.repo + '\\n\\n' + tweetText + '\\n\\nApprove to publish this on X.' +\n    (aiUsed ? '' : '\\n\\n⚠️ Template draft — the model call failed. Check OPENAI_API_KEY and OPENAI_MODEL.'),\n  tgButtons: [[\n    { text: '✅ Post to X', callback_data: 'ok:' + a.key },\n    { text: '🔁 Re-draft', callback_data: 're:' + a.key },\n    { text: '🗑 Skip', callback_data: 'no:' + a.key }\n  ]]\n} };\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');\nconst extra = String($env.OPENAI_FALLBACK_MODELS || '')\n  .split(',').map((m) => m.trim()).filter((m) => m.length > 0 && m !== primary);\nconst models = [primary].concat(extra);\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const model of models) out.push({ json: { ...j, model, __a: j, __models: models.length } });\n}\nreturn out;\n"
       },
-      "id": "n38",
+      "id": "n39",
+      "name": "Model Fanout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst all = (typeof $input !== 'undefined' && $input.all) ? $input.all() : [];\nif (!all.length) all.push({ json: $json || {} });\nconst pick = all.find((i) => {\n  try { return String(i.json.choices[0].message.content || '').trim().length > 0; } catch (e) { return false; }\n}) || all[0];\nconst resp = (pick && pick.json) || {};\nconst a = resp.__a || $('Select Announcements').first().json;\nlet draft = '';\ntry { draft = resp.choices[0].message.content || ''; } catch (e) { draft = ''; }\nconst aiUsed = String(draft || '').trim().length > 0;\ndraft = String(draft || '').trim();\nif (!draft) draft = a.fallbackDraft || a.title || '';\ndraft = draft.replace(/^[\"'“”]+|[\"'“”]+$/g, '').replace(/\\s+/g, ' ').trim();\n// Humanizer pass: flatten a list the model slipped through, drop em/en dashes\n// and hashtags, then tidy the punctuation that replacement can leave behind.\ndraft = draft\n  .replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/[\\r\\n]+/g, ' ')\n  .replace(/\\s*[—–]\\s*/g, ', ')\n  .replace(/(^|\\s)#[A-Za-z0-9_]+/g, '')\n  .replace(/\\*\\*|__/g, '')\n  .replace(/,\\s*,/g, ',')\n  .replace(/\\s+([,.;:!?])/g, '$1')\n  .replace(/\\s{2,}/g, ' ')\n  .trim();\nconst max = 253;\nif (draft.length > max) draft = draft.slice(0, max - 1).replace(/\\s+\\S*$/, '').trimEnd() + '…';\nconst tweetText = draft + '\\n\\n' + a.url;\nconst label = a.kind === 'features' ? '✨ Features' : '🚀 Release';\nreturn { json: {\n  ...a,\n  draft,\n  tweetText,\n  tgText: label + ' — ' + a.repo + '\\n\\n' + tweetText + '\\n\\nApprove to publish this on X.' +\n    (aiUsed ? '' : '\\n\\n⚠️ Template draft — the model call failed. Check OPENAI_API_KEY and OPENAI_MODEL.'),\n  tgButtons: [[\n    { text: '✅ Post to X', callback_data: 'ok:' + a.key },\n    { text: '🔁 Re-draft', callback_data: 're:' + a.key },\n    { text: '🗑 Skip', callback_data: 'no:' + a.key }\n  ]]\n} };\n"
+      },
+      "id": "n40",
       "name": "Prepare Draft",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -757,7 +785,7 @@
         "mode": "runOnceForEachItem",
         "jsCode": "\nconst st = $getWorkflowStaticData('global');\nconst a = $('Prepare Draft').item.json;\nst.pending = st.pending || {};\nst.pending[a.key] = {\n  key: a.key,\n  kind: a.kind,\n  repo: a.repo,\n  title: a.title,\n  url: a.url,\n  body: a.body,\n  draft: a.draft,\n  tweetText: a.tweetText,\n  status: 'pending',\n  attempts: 0,\n  createdAt: new Date().toISOString(),\n  sk: a.sk,\n  featureNumbers: a.featureNumbers || []\n};\nst.seen[a.sk] = new Date().toISOString();\ndelete st.offered[a.sk];\nif (a.kind === 'features' && a.featureNumbers && a.featureNumbers.length) {\n  const done = new Set(a.featureNumbers);\n  st.prQueue[a.repo] = (st.prQueue[a.repo] || []).filter(x => !done.has(x.number));\n  st.lastDigestAt[a.repo] = new Date().toISOString();\n}\nreturn { json: { queued: true, key: a.key } };\n"
       },
-      "id": "n39",
+      "id": "n41",
       "name": "Record Pending",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -958,6 +986,17 @@
       "main": [
         [
           {
+            "node": "Redraft Fanout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redraft Fanout": {
+      "main": [
+        [
+          {
             "node": "Draft Again",
             "type": "main",
             "index": 0
@@ -1104,6 +1143,17 @@
       ]
     },
     "Select Announcements": {
+      "main": [
+        [
+          {
+            "node": "Model Fanout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Fanout": {
       "main": [
         [
           {
