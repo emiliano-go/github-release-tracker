@@ -309,7 +309,7 @@ return items;
 SELECT = r"""
 const st = $getWorkflowStaticData('global');
 const now = Date.now();
-const digestMs = Math.max(1, Number($env.DIGEST_HOURS || 6)) * 3600000;
+const digestMs = Math.max(1, Number($env.DIGEST_HOURS || 2)) * 3600000;
 
 st.seen = st.seen || {};
 st.offered = st.offered || {};
@@ -412,10 +412,10 @@ for (const [full, b] of byRepo) {
   const q = st.prQueue[full];
   const last = Date.parse(st.lastDigestAt[full] || 0) || 0;
   const newest = q.reduce((m, x) => Math.max(m, Date.parse(x.mergedAt) || 0), 0);
-  const quietMs = Math.max(0, Number($env.DIGEST_QUIET_MINUTES || 60)) * 60000;
+  const quietMs = Math.max(0, Number($env.DIGEST_QUIET_MINUTES || 30)) * 60000;
   const settled = (now - newest) >= quietMs;
   const dueByTime = now - last >= digestMs;
-  const starved = now - last >= digestMs + 6 * 3600000;
+  const starved = now - last >= digestMs * 2;
   if (q.length && (starved || (dueByTime && settled) || q.length >= 8)) {
     const nums = q.map(x => x.number);
     const sk = full + '#features:' + nums[0] + '-' + nums[nums.length - 1];
