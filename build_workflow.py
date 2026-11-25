@@ -190,6 +190,7 @@ st.pending = st.pending || {};
 const op = String(body.op || query.op || 'list');
 
 if (op === 'list') {
+  const queueKeys = new Set((st.postQueue || []).map((q) => q.key));
   const pending = Object.values(st.pending)
     .filter((p) => p && p.status === 'pending')
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
@@ -203,6 +204,7 @@ if (op === 'list') {
       url: p.url,
       createdAt: p.createdAt,
       attempts: p.attempts || 0,
+      queued: queueKeys.has(p.key),
       lastError: p.lastError || ''
     }));
   return reply(200, { ok: true, count: pending.length, pending });
