@@ -367,6 +367,7 @@ function offered(sk) {
 }
 
 const announcements = [];
+const releasedNow = new Set();
 
 for (const [full, b] of byRepo) {
   const shortRepo = full.split('/')[1];
@@ -392,10 +393,24 @@ for (const [full, b] of byRepo) {
       url,
       body: notes.slice(0, 4000),
       featureNumbers: [],
-      systemPrompt: 'You write the X post for a developer shipping open source. The reader wants to know what changed. Rules: two sentences at most, under 220 characters. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Name the concrete change. Never invent numbers, features, or users. Sound like the person who wrote the code, not a marketing account. Return only the post text, no quotes, no URL.',
+      systemPrompt: 'You write the X post for a developer shipping open source. The reader wants the gist of a release. Rules: open with a one-line TL;DR of the release notes, then the single most important change. Two sentences at most, under 230 characters. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Name the concrete change. Never invent numbers, features, or users. Sound like the person who wrote the code, not a marketing account. Return only the post text, no quotes, no URL.',
       userPrompt: 'Repository: ' + full + '\nRelease: ' + name + '\nTag: ' + (rel.tag_name || '') + '\nRelease notes:\n' + (notes || '(No release notes supplied. Announce the release without inventing details.)'),
       fallbackDraft: shortRepo + ' ' + (rel.tag_name || '') + ' is out' + (notes ? ': ' + firstSentence(notes) : '.')
     });
+    releasedNow.add(full);
+    // A release carries the merged work, so it supersedes the PR digest for that repo.
+    if (st.prQueue[full] && st.prQueue[full].length) {
+      for (const pr of st.prQueue[full]) st.seen[full + '#pr:' + pr.number] = new Date(now).toISOString();
+      st.prQueue[full] = [];
+    }
+    for (const other of Object.values(st.pending || {})) {
+      const queuedForPost = (st.postQueue || []).some((q) => q.key === other.key);
+      if (other && other.repo === full && other.kind === 'features' && other.status === 'pending' && !queuedForPost) {
+        other.status = 'skipped';
+        other.skipReason = 'superseded by a release';
+      }
+    }
+    st.lastDigestAt[full] = new Date(now).toISOString();
   }
 
   if (!Array.isArray(st.prQueue[full])) st.prQueue[full] = [];
@@ -404,7 +419,7 @@ for (const [full, b] of byRepo) {
     const sk = full + '#pr:' + pr.number;
     if (st.seen[sk]) continue;
     st.seen[sk] = new Date(now).toISOString();
-    if (firstRun) continue;
+    if (firstRun || releasedNow.has(full)) continue;
     st.prQueue[full].push({
       number: pr.number,
       title: String(pr.title || ''),

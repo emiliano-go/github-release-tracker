@@ -305,6 +305,30 @@ console.log("Manual enqueue");
   check("manual post without a link has no trailing blank lines", item.tweetText === item.draft);
 }
 
+console.log("Release priority");
+{
+  const st = {
+    v: 1, initialized: true, seen: {}, offered: {}, prQueue: {},
+    lastDigestAt: { "emiliano-go/trustsight": new Date(Date.now() - 30 * 3600_000).toISOString(), "emiliano-go/other": new Date().toISOString() },
+    pending: {
+      d1: { key: "d1", kind: "features", repo: "emiliano-go/trustsight", status: "pending", draft: "old digest" },
+      d2: { key: "d2", kind: "features", repo: "emiliano-go/other", status: "pending", draft: "keep me" },
+    },
+    postQueue: [],
+  };
+  const rt = makeRuntime(st);
+  st.__input = [
+    { kind: "release", repo: "emiliano-go/trustsight", ok: true, payload: [rel(9, { body: "## What changed\nFixed the probe bypasses. Bumped CI. Full changelog below." })] },
+    { kind: "pull", repo: "emiliano-go/trustsight", ok: true, payload: [pr(31), pr(32)] },
+  ].map((json) => ({ json }));
+  const out = run("Select Announcements", rt, {});
+  check("release is announced", out.length === 1 && out[0].json.kind === "release");
+  check("release draft asks for a tldr", /TL;DR/i.test(out[0].json.systemPrompt));
+  check("merged PRs are folded into the release", st.prQueue["emiliano-go/trustsight"].length === 0);
+  check("stale digest for that repo is dropped", st.pending.d1.status === "skipped");
+  check("other repos keep their digest", st.pending.d2.status === "pending");
+}
+
 console.log("Paced posting queue");
 {
   const st = {
