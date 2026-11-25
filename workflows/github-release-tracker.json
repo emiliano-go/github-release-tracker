@@ -451,8 +451,8 @@
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 3000
+      "maxTries": 5,
+      "waitBetweenTries": 8000
     },
     {
       "parameters": {
@@ -735,8 +735,8 @@
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 3000
+      "maxTries": 5,
+      "waitBetweenTries": 8000
     },
     {
       "parameters": {

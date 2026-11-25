@@ -784,7 +784,7 @@ nodes.append(http(
     headers=OPENAI_HEADERS,
     body=OPENAI_BODY,
     on_error="continueRegularOutput",
-    retry=(3, 3000),
+    retry=(5, 8000),
 ))
 nodes.append(code("Prepare Redraft", PREPARE_REDRAFT, [1440, 300], each=True))
 
@@ -830,7 +830,7 @@ nodes.append(http(
     headers=OPENAI_HEADERS,
     body=OPENAI_BODY,
     on_error="continueRegularOutput",
-    retry=(3, 3000),
+    retry=(5, 8000),
 ))
 nodes.append(code("Prepare Draft", PREPARE_DRAFT, [3520, 380], each=True))
 
