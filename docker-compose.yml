@@ -44,7 +44,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
       OPENAI_MODEL: ${OPENAI_MODEL:-gemini-3.5-flash}
-      OPENAI_FALLBACK_MODELS: ${OPENAI_FALLBACK_MODELS:-gemini-3.8-flash,gemini-3.7-flash,gemini-3.1-flash-lite}
+      OPENAI_FALLBACK_MODELS: ${OPENAI_FALLBACK_MODELS:-openrouter/google/gemma-4-31b-it:free,openrouter/nvidia/nemotron-3.5-lightning:free,openrouter/inclusionai/ling-3.2-flash:free,gemini-3.8-flash}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
       - ./data:/home/node/.n8n
       - ./workflows:/workflows:ro

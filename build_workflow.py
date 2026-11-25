@@ -479,13 +479,29 @@ return { json: { kind: 'pull', repo, ok: !bad, payload: arr } };
 
 MODEL_FANOUT = r"""
 const primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');
-const extra = String($env.OPENAI_FALLBACK_MODELS || '')
-  .split(',').map((m) => m.trim()).filter((m) => m.length > 0 && m !== primary);
-const models = [primary].concat(extra);
+const list = [primary].concat(
+  String($env.OPENAI_FALLBACK_MODELS || '')
+    .split(',').map((m) => m.trim()).filter((m) => m.length > 0),
+);
+const route = (spec) => {
+  if (spec.startsWith('openrouter/')) {
+    const base = String($env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+    return { model: spec.slice('openrouter/'.length), endpoint: base + '/chat/completions', apiKey: String($env.OPENROUTER_API_KEY || '') };
+  }
+  const base = String($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  return { model: spec, endpoint: base + '/chat/completions', apiKey: String($env.OPENAI_API_KEY || '') };
+};
+const seen = new Set();
+const targets = [];
+for (const spec of list) {
+  if (seen.has(spec)) continue;
+  seen.add(spec);
+  targets.push(route(spec));
+}
 const out = [];
 for (const item of $input.all()) {
   const j = item.json;
-  for (const model of models) out.push({ json: { ...j, model, __a: j, __models: models.length } });
+  for (const t of targets) out.push({ json: { ...j, ...t, __a: j, __models: targets.length } });
 }
 return out;
 """
@@ -682,14 +698,14 @@ GH_HEADERS = [
 ]
 
 TG = "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/"
-OPENAI_URL = "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}"
+OPENAI_URL = "={{ $json.endpoint || ((($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions') }}"
 OPENAI_BODY = (
     "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, "
     "messages: [{ role: 'system', content: $json.systemPrompt }, "
     "{ role: 'user', content: $json.userPrompt }] }) }}"
 )
 OPENAI_HEADERS = [
-    ("Authorization", "=Bearer {{ $env.OPENAI_API_KEY }}"),
+    ("Authorization", "=Bearer {{ $json.apiKey || $env.OPENAI_API_KEY }}"),
     ("Content-Type", "application/json"),
 ]
 
@@ -810,7 +826,7 @@ nodes.append(http(
     headers=OPENAI_HEADERS,
     body=OPENAI_BODY,
     on_error="continueRegularOutput",
-    retry=(5, 8000),
+    retry=(2, 3000),
 ))
 nodes.append(code("Prepare Redraft", PREPARE_REDRAFT, [1440, 300]))
 

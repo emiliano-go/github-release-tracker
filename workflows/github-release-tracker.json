@@ -68,7 +68,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
+        "url": "={{ $json.endpoint || ((($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions') }}",
         "options": {
           "timeout": 60000
         },
@@ -77,7 +77,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+              "value": "=Bearer {{ $json.apiKey || $env.OPENAI_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -418,7 +418,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');\nconst extra = String($env.OPENAI_FALLBACK_MODELS || '')\n  .split(',').map((m) => m.trim()).filter((m) => m.length > 0 && m !== primary);\nconst models = [primary].concat(extra);\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const model of models) out.push({ json: { ...j, model, __a: j, __models: models.length } });\n}\nreturn out;\n"
+        "jsCode": "\nconst primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');\nconst list = [primary].concat(\n  String($env.OPENAI_FALLBACK_MODELS || '')\n    .split(',').map((m) => m.trim()).filter((m) => m.length > 0),\n);\nconst route = (spec) => {\n  if (spec.startsWith('openrouter/')) {\n    const base = String($env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\\/+$/, '');\n    return { model: spec.slice('openrouter/'.length), endpoint: base + '/chat/completions', apiKey: String($env.OPENROUTER_API_KEY || '') };\n  }\n  const base = String($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '');\n  return { model: spec, endpoint: base + '/chat/completions', apiKey: String($env.OPENAI_API_KEY || '') };\n};\nconst seen = new Set();\nconst targets = [];\nfor (const spec of list) {\n  if (seen.has(spec)) continue;\n  seen.add(spec);\n  targets.push(route(spec));\n}\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const t of targets) out.push({ json: { ...j, ...t, __a: j, __models: targets.length } });\n}\nreturn out;\n"
       },
       "id": "n23",
       "name": "Redraft Fanout",
@@ -432,7 +432,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
+        "url": "={{ $json.endpoint || ((($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions') }}",
         "options": {
           "timeout": 60000
         },
@@ -441,7 +441,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+              "value": "=Bearer {{ $json.apiKey || $env.OPENAI_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -465,8 +465,8 @@
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
-      "maxTries": 5,
-      "waitBetweenTries": 8000
+      "maxTries": 2,
+      "waitBetweenTries": 3000
     },
     {
       "parameters": {
@@ -716,7 +716,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ (($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions' }}",
+        "url": "={{ $json.endpoint || ((($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions') }}",
         "options": {
           "timeout": 60000
         },
@@ -725,7 +725,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $env.OPENAI_API_KEY }}"
+              "value": "=Bearer {{ $json.apiKey || $env.OPENAI_API_KEY }}"
             },
             {
               "name": "Content-Type",
@@ -755,7 +755,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');\nconst extra = String($env.OPENAI_FALLBACK_MODELS || '')\n  .split(',').map((m) => m.trim()).filter((m) => m.length > 0 && m !== primary);\nconst models = [primary].concat(extra);\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const model of models) out.push({ json: { ...j, model, __a: j, __models: models.length } });\n}\nreturn out;\n"
+        "jsCode": "\nconst primary = String($env.OPENAI_MODEL || 'gemini-3.5-flash');\nconst list = [primary].concat(\n  String($env.OPENAI_FALLBACK_MODELS || '')\n    .split(',').map((m) => m.trim()).filter((m) => m.length > 0),\n);\nconst route = (spec) => {\n  if (spec.startsWith('openrouter/')) {\n    const base = String($env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\\/+$/, '');\n    return { model: spec.slice('openrouter/'.length), endpoint: base + '/chat/completions', apiKey: String($env.OPENROUTER_API_KEY || '') };\n  }\n  const base = String($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '');\n  return { model: spec, endpoint: base + '/chat/completions', apiKey: String($env.OPENAI_API_KEY || '') };\n};\nconst seen = new Set();\nconst targets = [];\nfor (const spec of list) {\n  if (seen.has(spec)) continue;\n  seen.add(spec);\n  targets.push(route(spec));\n}\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  for (const t of targets) out.push({ json: { ...j, ...t, __a: j, __models: targets.length } });\n}\nreturn out;\n"
       },
       "id": "n39",
       "name": "Model Fanout",
