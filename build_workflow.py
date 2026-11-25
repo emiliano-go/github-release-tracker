@@ -307,7 +307,7 @@ return items;
 SELECT = r"""
 const st = $getWorkflowStaticData('global');
 const now = Date.now();
-const digestMs = Math.max(1, Number($env.DIGEST_HOURS || 24)) * 3600000;
+const digestMs = Math.max(1, Number($env.DIGEST_HOURS || 6)) * 3600000;
 
 st.seen = st.seen || {};
 st.offered = st.offered || {};

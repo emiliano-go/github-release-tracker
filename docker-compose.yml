@@ -29,7 +29,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-PASTE_GITHUB_TOKEN}
       TRACKED_REPOS: ${TRACKED_REPOS:-emiliano-go/trustsight,emiliano-go/trustsight-feed,emiliano-go/trustsight-harness,emiliano-go/trustsight-web,emiliano-go/trustsight-triage-agent,emiliano-go/trustsight-lab,emiliano-go/rypipe,dbwarden-org/dbwarden}
       GITHUB_POLL_MINUTES: ${GITHUB_POLL_MINUTES:-15}
-      DIGEST_HOURS: ${DIGEST_HOURS:-24}
+      DIGEST_HOURS: ${DIGEST_HOURS:-6}
       DIGEST_QUIET_MINUTES: ${DIGEST_QUIET_MINUTES:-60}
       X_ENABLED: ${X_ENABLED:-false}
       X_CONSUMER_KEY: ${X_CONSUMER_KEY:-}

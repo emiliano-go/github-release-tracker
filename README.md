@@ -111,7 +111,7 @@ the list straight away.
 | `GITHUB_TOKEN` | none | GitHub API token |
 | `TRACKED_REPOS` | see `.env.example` | Comma-separated `owner/name` |
 | `GITHUB_POLL_MINUTES` | 15 | Poll interval, minimum 5 |
-| `DIGEST_HOURS` | 24 | How often merged PRs are summarised |
+| `DIGEST_HOURS` | 6 | How often merged PRs are summarised |
 | `DIGEST_QUIET_MINUTES` | 60 | Wait for the burst to stop before writing the digest |
 | `POST_INTERVAL_MINUTES` | 15 | Approved posts are published this far apart |
 | `POST_JITTER_MINUTES` | 2 | Each gap varies by up to this much |
