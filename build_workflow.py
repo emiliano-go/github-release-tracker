@@ -257,7 +257,7 @@ return [{ json: { statusCode: 201, body: { ok: true, key, draft, usedModel: !!re
 """
 
 TRACKED = r"""
-const raw = String($env.TRACKED_REPOS || 'emiliano-go/trustsight,emiliano-go/rypipe,dbwarden-org/dbwarden');
+const raw = String($env.TRACKED_REPOS || 'emiliano-go/trustsight,emiliano-go/trustsight-feed,emiliano-go/trustsight-harness,emiliano-go/trustsight-web,emiliano-go/trustsight-triage-agent,emiliano-go/trustsight-lab,emiliano-go/rypipe,dbwarden-org/dbwarden');
 const seen = new Set();
 const items = [];
 for (const part of raw.split(',')) {
@@ -328,6 +328,7 @@ const announcements = [];
 
 for (const [full, b] of byRepo) {
   const shortRepo = full.split('/')[1];
+  const firstRun = !Object.prototype.hasOwnProperty.call(st.lastDigestAt, full);
 
   for (const rel of b.releases) {
     if (!rel || rel.draft || rel.prerelease) continue;
@@ -335,7 +336,7 @@ for (const [full, b] of byRepo) {
     if (!id) continue;
     const sk = full + '#release:' + id;
     if (st.seen[sk] || offered(sk)) continue;
-    if (baseline) { st.seen[sk] = new Date(now).toISOString(); continue; }
+    if (firstRun) { st.seen[sk] = new Date(now).toISOString(); continue; }
     const url = rel.html_url || ('https://github.com/' + full + '/releases/tag/' + rel.tag_name);
     const name = rel.name || rel.tag_name || 'New release';
     const notes = String(rel.body || '').trim();
@@ -361,7 +362,7 @@ for (const [full, b] of byRepo) {
     const sk = full + '#pr:' + pr.number;
     if (st.seen[sk]) continue;
     st.seen[sk] = new Date(now).toISOString();
-    if (baseline) continue;
+    if (firstRun) continue;
     st.prQueue[full].push({
       number: pr.number,
       title: String(pr.title || ''),
@@ -371,26 +372,31 @@ for (const [full, b] of byRepo) {
     });
   }
 
-  if (baseline) { st.lastDigestAt[full] = new Date(now).toISOString(); continue; }
+  if (firstRun) { st.lastDigestAt[full] = new Date(now).toISOString(); continue; }
 
   const q = st.prQueue[full];
   const last = Date.parse(st.lastDigestAt[full] || 0) || 0;
-  if (q.length && (now - last >= digestMs || q.length >= 8)) {
+  const newest = q.reduce((m, x) => Math.max(m, Date.parse(x.mergedAt) || 0), 0);
+  const quietMs = Math.max(0, Number($env.DIGEST_QUIET_MINUTES || 60)) * 60000;
+  const settled = (now - newest) >= quietMs;
+  const dueByTime = now - last >= digestMs;
+  const starved = now - last >= digestMs + 6 * 3600000;
+  if (q.length && (starved || (dueByTime && settled) || q.length >= 8)) {
     const nums = q.map(x => x.number);
     const sk = full + '#features:' + nums[0] + '-' + nums[nums.length - 1];
     if (st.seen[sk] || offered(sk)) continue;
     st.offered[sk] = now;
-    const bullets = q.map(x => '- ' + x.title + (x.body ? ' — ' + short(x.body, 110) : '')).join('\n');
+    const bullets = q.map((x, i) => (i + 1) + '. ' + x.title + (x.body ? ' — ' + short(x.body, 110) : '')).join('\n');
     announcements.push({
       kind: 'features',
       key: 'f' + hash(sk),
       sk,
       repo: full,
       title: 'New in ' + shortRepo,
-      url: 'https://github.com/' + full + '/pulls?q=is%3Apr+is%3Amerged',
+      url: 'https://github.com/' + full,
       body: bullets,
       featureNumbers: nums.slice(),
-      systemPrompt: 'You write the X post for a developer shipping open source, from a list of merged changes. Describe what shipped as capabilities. Rules: one or two sentences, under 220 characters, prose only. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Never mention pull requests, merges, commits, branches, or process. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Never invent details. Sound like the person who wrote the code. Return only the post text, no quotes, no URL.',
+      systemPrompt: 'You write the X post for a developer shipping open source, from a list of merged changes. Describe what shipped as capabilities. Rules: one or two sentences, under 230 characters, prose only. Mention every numbered change in the list with at least a few words each; compress related ones into one clause and never drop an item. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Never mention pull requests, merges, commits, branches, or process. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y. No closing line that restates the point. Never invent details. Sound like the person who wrote the code. Return only the post text, no quotes, no URL.',
       userPrompt: 'Project: ' + full + '\nShipped:\n' + bullets,
       fallbackDraft: 'New in ' + shortRepo + ': ' + q.slice(0, 4).map(x => short(x.title, 55)).join(' · ')
     });

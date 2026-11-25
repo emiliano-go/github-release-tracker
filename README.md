@@ -110,6 +110,7 @@ the list straight away.
 | `TRACKED_REPOS` | see `.env.example` | Comma-separated `owner/name` |
 | `GITHUB_POLL_MINUTES` | 15 | Poll interval, minimum 5 |
 | `DIGEST_HOURS` | 24 | How often merged PRs are summarised |
+| `DIGEST_QUIET_MINUTES` | 60 | Wait for the burst to stop before writing the digest |
 | `OPENAI_API_KEY` | empty | Draft writing |
 | `OPENAI_BASE_URL` | Gemini OpenAI endpoint | Any compatible endpoint |
 | `OPENAI_MODEL` | `gemini-3.5-flash` | Model id |

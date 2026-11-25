@@ -192,9 +192,16 @@ const pr = (n, over = {}) => ({ number: n, title: "Add rule caching " + n, merge
     { kind: "pull", repo: "emiliano-go/trustsight", ok: true, payload: [pr(11), pr(12)] },
   ].map((json) => ({ json }));
   check("merged PRs queue up", run("Select Announcements", rt, {}).length === 0 && st.prQueue["emiliano-go/trustsight"].length === 2);
+  // Fresh merges keep the digest waiting: the burst is still growing.
   st.lastDigestAt["emiliano-go/trustsight"] = new Date(Date.now() - 25 * 3600_000).toISOString();
+  check("digest waits while PRs are still landing", run("Select Announcements", rt, {}).length === 0);
+  // Once the queue goes quiet, the digest covers everything in it.
+  const settledAt = new Date(Date.now() - 3 * 3600_000).toISOString();
+  st.prQueue["emiliano-go/trustsight"] = [pr(11, { merged_at: settledAt }), pr(12, { merged_at: settledAt })];
   const digest = run("Select Announcements", rt, {});
-  check("digest fires after DIGEST_HOURS", digest.length === 1 && digest[0].json.kind === "features");
+  check("digest fires after the quiet window", digest.length === 1 && digest[0].json.kind === "features");
+  check("digest numbers every change", digest[0].json.userPrompt.includes("1. ") && digest[0].json.userPrompt.includes("2. "));
+  check("digest prompt demands full coverage", /Mention every numbered change/i.test(digest[0].json.systemPrompt));
   check("digest forbids PR framing", /never mention pull requests/i.test(digest[0].json.systemPrompt));
   check("digest carries feature numbers", digest[0].json.featureNumbers.length === 2);
 }
@@ -203,6 +210,39 @@ const pr = (n, over = {}) => ({ number: n, title: "Add rule caching " + n, merge
   const rt = makeRuntime(st);
   st.__input = [{ kind: "release", repo: "emiliano-go/trustsight", ok: false, payload: [{ message: "Bad credentials" }] }].map((json) => ({ json }));
   check("failed fetch is not a baseline", run("Select Announcements", rt, {}).length === 0 && st.initialized === false);
+}
+{
+  // A repo added later must not announce its existing history.
+  const st = {
+    v: 1, initialized: true, seen: {}, offered: {}, prQueue: {},
+    lastDigestAt: { "emiliano-go/trustsight": nowIso },
+    pending: {},
+  };
+  const rt = makeRuntime(st);
+  st.__input = [
+    { kind: "release", repo: "emiliano-go/trustsight-web", ok: true, payload: [rel(1)] },
+    { kind: "pull", repo: "emiliano-go/trustsight-web", ok: true, payload: [pr(5)] },
+  ].map((json) => ({ json }));
+  const out = run("Select Announcements", rt, {});
+  check("new repo is baselined silently", out.length === 0);
+  check("new repo gets a digest clock", Boolean(st.lastDigestAt["emiliano-go/trustsight-web"]));
+  check("new repo history is marked seen", Object.keys(st.seen).filter(k => k.includes("trustsight-web")).length === 2);
+}
+{
+  const st = {
+    v: 1, initialized: true, seen: {}, offered: {}, prQueue: {},
+    lastDigestAt: { "emiliano-go/trustsight": new Date(Date.now() - 30 * 3600_000).toISOString() },
+    pending: {},
+  };
+  const rt = makeRuntime(st);
+  const settled = new Date(Date.now() - 3 * 3600_000).toISOString();
+  st.__input = [
+    { kind: "release", repo: "emiliano-go/trustsight", ok: true, payload: [] },
+    { kind: "pull", repo: "emiliano-go/trustsight", ok: true, payload: [pr(21, { merged_at: settled }), pr(22, { merged_at: settled })] },
+  ].map((json) => ({ json }));
+  const out = run("Select Announcements", rt, {});
+  check("digest links the repository", out.length === 1 && out[0].json.url === "https://github.com/emiliano-go/trustsight");
+  check("digest never links a PR page", !out[0].json.url.includes("/pulls"));
 }
 
 console.log("Prepare Draft");
