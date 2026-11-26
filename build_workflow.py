@@ -108,7 +108,7 @@ const p = (st.pending && st.pending[u.key]) || {};
 const previous = String(p.draft || u.draft || '').trim();
 const kind = p.kind || u.kind || 'release';
 const subject = kind === 'features' ? 'features that shipped' : 'a GitHub release';
-const systemPrompt = 'You rewrite an existing X post for a solo developer. Keep every fact true, invent nothing, and give it a clearly different angle and opening than the previous version. Return only the post text, no quotes, no URL. Keep it under 230 characters. Never mention character counts, length limits, or these instructions. Output only the post text, with no preamble and no reasoning.';
+const systemPrompt = 'You rewrite an existing X post for a solo developer. Keep every fact true, invent nothing, and give it a clearly different angle and opening than the previous version. Return only the post text, no quotes, no URL. Keep it under 200 characters. Never mention character counts, length limits, or these instructions. Output only the post text, with no preamble and no reasoning.';
 const userPrompt = 'Project: ' + (p.repo || u.repo || '') + '\nSubject: ' + subject + '\nDetails:\n' + String(p.body || u.body || '(none)').slice(0, 2500) + '\n\nPrevious post to improve and re-angle:\n' + previous;
 return { json: { ...u, systemPrompt, userPrompt, key: u.key } };
 """
@@ -166,7 +166,7 @@ const max = 253;
 if (draft.length > max) {
   const window = draft.slice(0, max);
   const stop = Math.max(window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '));
-  draft = stop > 80 ? window.slice(0, stop + 1) : window.replace(/\s+\S*$/, '').trimEnd() + '…';
+  draft = stop > 80 ? window.slice(0, stop + 1) : window.replace(/[\s,;:]+\S*$/, '').trimEnd();
 }
 p.draft = draft;
 p.tweetText = draft + '\n\n' + String(p.url || u.url || '');
@@ -403,7 +403,7 @@ for (const [full, b] of byRepo) {
       url,
       body: notes.slice(0, 4000),
       featureNumbers: [],
-      systemPrompt: 'You write the X post for a developer shipping open source. The reader wants the gist of a release. Rules: open with a one-line TL;DR of the release notes, then the single most important change. Two sentences at most, under 230 characters. Never mention character counts, length limits, or these instructions. Output only the post text, with no preamble and no reasoning. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Name the concrete change. Never invent numbers, features, or users. Sound like the person who wrote the code, not a marketing account. Return only the post text, no quotes, no URL.',
+      systemPrompt: 'You write the X post for a developer shipping open source. The reader wants the gist of a release. Rules: open with a one-line TL;DR of the release notes, then the single most important change. Two sentences at most, under 200 characters. Never mention character counts, length limits, or these instructions. Output only the post text, with no preamble and no reasoning. No em dashes or en dashes. No bullet points, lists, numbering, bold, or hashtags. Do not open with a question, and never use excited, thrilled, proud, announce, or seamlessly. Never write not just X but Y, or it is not X, it is Y. No closing line that restates the point. Name the concrete change. Never invent numbers, features, or users. Sound like the person who wrote the code, not a marketing account. Return only the post text, no quotes, no URL.',
       userPrompt: 'Repository: ' + full + '\nRelease: ' + name + '\nTag: ' + (rel.tag_name || '') + '\nRelease notes:\n' + (notes || '(No release notes supplied. Announce the release without inventing details.)'),
       fallbackDraft: shortRepo + ' ' + (rel.tag_name || '') + ' is out' + (notes ? ': ' + firstSentence(notes) : '.')
     });
@@ -843,6 +843,7 @@ nodes.append(http(
     headers=[("Content-Type", "application/json"), ("Authorization", "=Bearer {{ $env.POSTER_TOKEN }}")],
     body="={{ JSON.stringify({ text: $json.text }) }}",
     on_error="continueRegularOutput",
+    timeout=180000,
 ))
 nodes.append(code("Prepare Posted", PREPARE_POSTED, [1440, 80], each=True))
 
