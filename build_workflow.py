@@ -513,10 +513,10 @@ const list = [primary].concat(
 const route = (spec) => {
   if (spec.startsWith('openrouter/')) {
     const base = String($env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
-    return { model: spec.slice('openrouter/'.length), endpoint: base + '/chat/completions', apiKey: String($env.OPENROUTER_API_KEY || '') };
+    return { model: spec.slice('openrouter/'.length), endpoint: base + '/chat/completions', apiKey: String($env.OPENROUTER_API_KEY || ''), extra: { reasoning: { effort: 'low' } } };
   }
   const base = String($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
-  return { model: spec, endpoint: base + '/chat/completions', apiKey: String($env.OPENAI_API_KEY || '') };
+  return { model: spec, endpoint: base + '/chat/completions', apiKey: String($env.OPENAI_API_KEY || ''), extra: {} };
 };
 const seen = new Set();
 const targets = [];
@@ -730,9 +730,9 @@ GH_HEADERS = [
 TG = "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/"
 OPENAI_URL = "={{ $json.endpoint || ((($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '')) + '/chat/completions') }}"
 OPENAI_BODY = (
-    "={{ JSON.stringify({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, max_tokens: 1500, "
+    "={{ JSON.stringify(Object.assign({ model: $json.model || $env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.7, max_tokens: 3000, "
     "messages: [{ role: 'system', content: $json.systemPrompt }, "
-    "{ role: 'user', content: $json.userPrompt }] }) }}"
+    "{ role: 'user', content: $json.userPrompt }] }, $json.extra || {})) }}"
 )
 OPENAI_HEADERS = [
     ("Authorization", "=Bearer {{ $json.apiKey || $env.OPENAI_API_KEY }}"),
